@@ -1,0 +1,279 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
+#include <pthread.h>
+#include <string.h>
+#include <limits.h>
+#include <errno.h>
+#include <stdarg.h>
+
+#include "flac2mp3.h"
+
+#define RED_BOLD  "\033[1;31m"        /* 0 -> normal ;  31 -> red */
+#define RED       "\033[0;31m"        /* 0 -> normal ;  31 -> red */
+#define CYAN      "\033[0;36m"        /* 1 -> bold ;  36 -> cyan */
+#define GREEN     "\033[0;32m"        /* 4 -> underline ;  32 -> green */
+#define BLUE      "\033[9;34m"        /* 9 -> strike ;  34 -> blue */
+#define NO_COLOR  "\033[0m"           /* to flush the previous property */
+
+#define TIME_SIZE            19
+#define MAX_COMMAND_SIZE    512
+#define LINE_SIZE          1024
+
+#define ERROR                 1
+#define INFO                  2
+#define DEBUG                 3         
+
+#define ERROR_STR     "ERROR"
+#define INFO_STR      "INFO "
+#define DEBUG_STR     "DEBUG"     
+#define UNKNOWN_STR   "(***)"   
+
+void LOG(int type, char* message, ...);
+void currentTime(char* current_time);
+void *decodeNext();
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+int lastFile = -1;
+int filesCount = 10;
+char** files;
+char** filenames;
+char* output_dir;
+int vbr_quality = 4;
+
+
+void die(const char *message) {
+  if (errno) {
+    perror(message);
+  }
+  else {
+    //fprintf(stderr, "%sERROR: %s%s%s\n", redBold, red, message, none);
+  }
+  
+  exit(1);
+}
+
+void help(char* filename) {
+  printf(
+   "Music search utility by jsteiner\nUsage: %s [OPTION] INPUT_DIR OUTPUT_DIR\n\nOptions:\n    -h       help\n    -V [num] lame variable bitrate quality\n    -n [num] number of threads to use (default 2)\n    -m [num] number of maximum files to convert (default 30)\n", filename);
+  exit(0);
+}
+
+void LOG(int type, char* message_format, ...) {
+  char* log_type;
+  char* color;
+  switch(type) {
+    case ERROR:
+      log_type = ERROR_STR;
+      color = RED_BOLD;
+      break;
+    case INFO:
+      log_type = INFO_STR;
+      color = CYAN;
+      break;
+    case DEBUG:
+      log_type = DEBUG_STR;
+      color = GREEN;
+      break;
+    default:
+      log_type = UNKNOWN_STR;
+      color = BLUE;
+      break;
+  }
+
+  char current_time[TIME_SIZE];
+  currentTime(current_time);
+  
+  char line[LINE_SIZE];
+  
+  sprintf(line, "%s%s %s :: %s%s\n", color, current_time, log_type, message_format, NO_COLOR);
+  
+  va_list argptr;
+  va_start(argptr, message_format);
+  if (type != ERROR) {
+    vfprintf(stdout, line, argptr);
+  }
+  else {
+    vfprintf(stderr, line, argptr);
+  }
+  va_end(argptr);
+}
+
+void currentTime(char* current_time) {
+  time_t now;
+  struct tm *tm;
+
+  now = time(0);
+  if ((tm = localtime (&now)) == NULL) {
+    current_time=" (time_error) ";
+    return;
+  }
+
+  sprintf(current_time, "%04d-%02d-%02d %02d:%02d:%02d",
+      tm->tm_year+1900, tm->tm_mon+1, tm->tm_mday,
+      tm->tm_hour, tm->tm_min, tm->tm_sec);
+}
+
+int main(int argc, char* argv[]) {
+  int num_threads = 2;
+  int max_results = 30;
+  
+  extern char *optarg;
+  extern int optind, opterr;
+  
+  int argument;
+  while( (argument = getopt(argc, argv, "hm:n:V:")) != -1  ) {
+    LOG(DEBUG, "argument=%c optarg='%s'", argument, optarg);
+    switch(argument) {
+      case 'h':
+        help(argv[0]);
+        break;
+      case 'm':
+        max_results = atoi(optarg);
+        break;
+      case 'n':
+        num_threads = atoi(optarg);
+        break;
+      case 'V':
+        vbr_quality = atoi(optarg);
+        break;
+      default: /* '?' */
+        //printf("argument %c\n", argument);
+        die("Wrong arguments or argument requires an option which was not supplied");
+    }
+  }
+  
+  if(optind > argc - 2) {
+    die("No input/output folders specified");
+  }
+  
+  char *current_dir = argv[optind++];
+  output_dir = argv[optind];
+  /* current working directory */
+  //char current_dir[PATH_MAX];
+  //getcwd(current_dir, PATH_MAX);
+  printf("current dir: %s\n", current_dir);
+  printf("output dir: %s\n", output_dir);
+  
+  pthread_t threads[num_threads];
+  
+  LOG(INFO, "Starting %d threads", num_threads);
+  
+  char list_files_command[MAX_COMMAND_SIZE] = "\0";
+  strcat(list_files_command, "ls \"");
+  strcat(list_files_command, current_dir);
+  strcat(list_files_command, "\" | grep -E \"(.flac$)|(.fla$)\"");
+  
+  FILE *fp = popen (list_files_command, "r");
+ 
+  if (fp == NULL) {
+    die("Failed to run search command");
+  }
+
+  /* Read the output a line at a time */
+  int i;
+  char line[PATH_MAX];
+  char* itemList[max_results];
+  char* itemNames[max_results];
+  for(i = 0; i < max_results; i++) {
+    if (  fgets(line, sizeof(line) - 1, fp) == NULL  ) {
+      break;
+    }
+    
+    char path_to_file[PATH_MAX] = "\0";
+    strcat(path_to_file, current_dir);
+    strcat(path_to_file, "/");
+    strcat(path_to_file, line);
+    
+    /* allocate memory for string */
+    itemList[i] = strndup(path_to_file, strlen(path_to_file) - 1);
+    
+    if (line[strlen(line-1)] == 'c') {
+      /* if filename ends with .flac */
+      itemNames[i] = strndup(line, strlen(line) - 6 - 1);
+    } 
+    else {
+      /* else filename most probably ends with .fla */
+      itemNames[i] = strndup(line, strlen(line) - 5 - 1);
+    }
+    
+
+    if (itemList[i] == NULL) {
+      die("Memory error");
+    }
+    
+    //printf("%s", line);
+  }
+  filesCount = i;
+  files = itemList;
+  filenames = itemNames;
+
+  if (filesCount <= 0) {
+    printf("No results found\n");
+    exit(0);
+  }
+  
+  /* print the numbered results */
+//  for(i = 0; i < filesCount; i++) {
+//    printf("%d. %s\n", i, files[i]);
+//  }
+   
+  int* thread_indexes[num_threads];
+  for (i = 0; i < num_threads; i++) {
+    thread_indexes[i] = malloc(sizeof(int));
+    *thread_indexes[i] = i;
+    pthread_create(&threads[i], NULL, &decodeNext, (void *) thread_indexes[i]);
+  }
+  
+  for (i = 0; i < num_threads; i++) {
+    pthread_join(threads[i], NULL);
+    free(thread_indexes[i]);
+  }
+  
+  LOG(DEBUG, "Program ended");
+
+  return 0;
+}
+
+/**
+ * This method will be called from new thread
+ */
+void *decodeNext(void * thread_num) {
+  int thread = *((int *) thread_num);
+//  printf("TREAD %d", thread);
+//  LOG(DEBUG, "decodeNext() called");
+
+  int currentFile;
+  char command[512];
+  
+  /* this is supposed to be something like synchronized in java */
+  pthread_mutex_lock(&mutex);
+  currentFile = ++lastFile;
+  pthread_mutex_unlock(&mutex);
+  
+  
+  /* check if index is out of bounds */
+  if (currentFile > filesCount - 1) {
+    /* if it is, do nothing */
+    LOG(DEBUG, "THREAD %d about to finish!", thread);
+    return NULL;
+  }
+  
+  sprintf(command, "flac -scd \"%s\" | lame --quiet -h -V%d - \"%s/%s.mp3\"", 
+      files[currentFile], vbr_quality, output_dir, filenames[currentFile]);
+  
+  
+  LOG(INFO, "THREAD %d command: %s", thread, command);
+  /* start conversion */
+  FILE *file;
+  file = popen(command, "r");
+  
+  /* wait for the command to complete */
+  pclose(file);
+  
+  /* convert the file which is next in line if there is any */
+//  LOG(DEBUG, "decodeNext() ended");
+  decodeNext(thread_num);
+  return NULL; 
+}
