@@ -6,10 +6,12 @@
 #include <limits.h>
 #include <errno.h>
 
-#include "flac2mp3.h"
+#include "threader.h"
 #include "js_logger.h"
 #include "string_allocation.h"
 #include "config.h"
+
+void *do_work();
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; /* for synchronized reading */
 int last_file = -1;          /* global variable, file conversion counter */
@@ -112,7 +114,7 @@ int main(int argc, char* argv[], char* envp[]) {
   }
   
   /*
-   * path of config file, default: /home/$USER/.flac2mp3/config
+   * path of config file, default: /home/$USER/.threader/config
    */
   char* config_location;
   if (use_custom_config_file) {
@@ -251,9 +253,9 @@ int main(int argc, char* argv[], char* envp[]) {
     *thread_indexes[i] = i;
     
     /*
-     * create a new thread (call decodeNext() in a new thread)
+     * create a new thread (call do_work() in a new thread)
      */
-    pthread_create(&threads[i], NULL, &decodeNext, (void *) thread_indexes[i]);
+    pthread_create(&threads[i], NULL, &do_work, (void *) thread_indexes[i]);
   }
   
   /*
@@ -273,7 +275,7 @@ int main(int argc, char* argv[], char* envp[]) {
     for (i = 0; i < size; i++) {
       char* script_command = print_to_string("%s \"%s\" \"%s\"", config.script_path, 
           input_files[i], output_filenames[i]);
-      LOG(INFO, "Updating tags for file: '%s'", output_filenames[i]);
+      LOG(INFO, "Running post script: %s", script_command);
       fp = popen(script_command, "r");
       if (fp == NULL) die("Unable to open script");
       free(script_command);
@@ -330,7 +332,7 @@ char* format_command(char *config_command, int currentFile) {
  * This method will be called from new thread.
  * It will call itself recursively later on.
  */
-void *decodeNext(void * thread_num) {
+void *do_work(void * thread_num) {
   int thread = *((int *) thread_num);
   
   /*
@@ -382,7 +384,7 @@ void *decodeNext(void * thread_num) {
   /* 
    * convert the file which is next in line if there is any (recursive call)
    */
-  decodeNext(thread_num);
+  do_work(thread_num);
   
   return NULL; 
 }
