@@ -18,7 +18,6 @@
 #define UNKNOWN_STR   "(***)"  
 
 #define TIME_SIZE            19
-#define LINE_SIZE          1024
 
 void enable_verbose();
 

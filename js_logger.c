@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 #include "js_logger.h"
+#include "string_allocation.h"
 
 int verbose = 0;
 
@@ -53,9 +54,7 @@ void LOG(int type, const char* message_format, ...) {
   char current_time[TIME_SIZE];
   currentTime(current_time);
   
-  char line[LINE_SIZE];
-  
-  sprintf(line, "%s%s %s :: %s%s\n", color, current_time, log_type, message_format, NO_COLOR);
+  char* line = print_to_string("%s%s %s :: %s%s\n", color, current_time, log_type, message_format, NO_COLOR);
   
   va_list argptr;
   va_start(argptr, message_format);
@@ -66,6 +65,8 @@ void LOG(int type, const char* message_format, ...) {
     vfprintf(stderr, line, argptr);
   }
   va_end(argptr);
+  
+  free(line);
 }
 
 void currentTime(char* current_time) {

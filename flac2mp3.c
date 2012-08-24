@@ -8,6 +8,8 @@
 
 #include "flac2mp3.h"
 #include "js_logger.h"
+#include "string_allocation.h"
+//#include "config.h"
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 int lastFile = -1;
@@ -17,29 +19,42 @@ char** filenames;
 char* output_dir;
 int vbr_quality = 4;
 
+const int INITIAL_SIZE = 5;
 
 void help(char* filename) {
   printf(
-   "usage: %s [OPTION] INPUT_DIR OUTPUT_DIR\n\nOptions:\n    -h       help\n    -V [num] lame variable bitrate quality\n    -n [num] number of threads to use (default 2)\n    -m [num] number of maximum files to convert (default 30)\n    -v       verbose", filename);
+   "usage: %s [OPTION] INPUT_DIR OUTPUT_DIR\n\nOptions:\n    -h       help\n    -V [num] lame variable bitrate quality\n    -n [num] number of threads to use (default 2)\n    -v       verbose", filename);
   exit(0);
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[], char* envp[]) {
+//  const char* home_dir = getenv("HOME");
+//  const char* test_env = getenv("TEST");
+//  LOG(INFO, "HOME=%s, TEST=%s", home_dir, test_env);
+
+//  Config config = read_conf_file();
+//  LOG(INFO, "command=%s, threads=%d", config.command, config.threads);
+  
+//  free(config.command);
+
+//  int pos = find_position_of_string("testiranje pronalaska", "aska");
+//  LOG(INFO, "pos=%d", pos);
+  char *string = replace_first_occurrence_in_string("testiranjereplacea", "a", "XXX");
+  LOG(INFO, "string=%s", string);
+  free(string);
+
   int num_threads = 2;
-  int max_results = 30;
+  //int max_results = 30;
   
   extern char *optarg;
   extern int optind, opterr;
   
   int argument;
-  while( (argument = getopt(argc, argv, "hm:n:V:v")) != -1  ) {
+  while( (argument = getopt(argc, argv, "hn:V:v")) != -1  ) {
     LOG(DEBUG, "argument=%c optarg='%s'", argument, optarg);
     switch(argument) {
       case 'h':
         help(argv[0]);
-        break;
-      case 'm':
-        max_results = atoi(optarg);
         break;
       case 'n':
         num_threads = atoi(optarg);
@@ -65,19 +80,17 @@ int main(int argc, char* argv[]) {
   /* current working directory */
   //char current_dir[PATH_MAX];
   //getcwd(current_dir, PATH_MAX);
-  LOG(DEBUG, "current dir: %s\n", current_dir);
-  LOG(DEBUG, "output dir: %s\n", output_dir);
+  LOG(DEBUG, "current dir: %s", current_dir);
+  LOG(DEBUG, "output dir: %s", output_dir);
   
   pthread_t threads[num_threads];
   
   LOG(INFO, "Starting %d threads", num_threads);
   
-  char list_files_command[MAX_COMMAND_SIZE] = "\0";
-  strcat(list_files_command, "ls \"");
-  strcat(list_files_command, current_dir);
-  strcat(list_files_command, "\" | grep -E \"(.flac$)|(.fla$)\"");
-  
+  char* list_files_command;
+  list_files_command = print_to_string("ls \"%s\" | grep -E \"(.flac$)|(.fla$)\"", current_dir);
   FILE *fp = popen (list_files_command, "r");
+  free(list_files_command);
  
   if (fp == NULL) {
     die("Failed to run search command");
@@ -86,30 +99,54 @@ int main(int argc, char* argv[]) {
   /* Read the output a line at a time */
   int i;
   char line[PATH_MAX];
-  char* itemList[max_results];
-  char* itemNames[max_results];
-  for(i = 0; i < max_results; i++) {
+
+  int size = INITIAL_SIZE;
+  char** itemList = malloc(sizeof(char*) * size); 
+  char** itemNames = malloc(sizeof(char*) * size);
+  if (itemList == NULL || itemNames == NULL) {
+        die("Memory error!");
+  }
+  
+  /*
+   * not sure if this is really neccessary
+   */ 
+  for (i = 0; i < size; i++) {
+    itemList[i] = NULL;
+    itemNames[i] = NULL;
+  }
+  
+  for(i = 0; 1; i++) {
     if (  fgets(line, sizeof(line) - 1, fp) == NULL  ) {
       break;
     }
     
-    char path_to_file[PATH_MAX] = "\0";
-    strcat(path_to_file, current_dir);
-    strcat(path_to_file, "/");
-    strcat(path_to_file, line);
+    if (i >= size) {
+      size = i + 1;
+      itemList = realloc(itemList, sizeof(char*) * size);
+      itemNames = realloc(itemNames, sizeof(char*) * size);
+      if (itemList == NULL || itemNames == NULL) {
+        die("Memory error!");
+      }
+    }
     
-    /* allocate memory for string */
-    itemList[i] = strndup(path_to_file, strlen(path_to_file) - 1);
     
-    if (line[strlen(line-1)] == 'c') {
+    char* path_to_file;
+    char* line_without_newline = strndup(line, strlen(line) - 1);
+    path_to_file = print_to_string("%s%s", current_dir, line_without_newline);
+    
+    itemList[i] = path_to_file;
+    
+    LOG(DEBUG, "input_filename_%d='%s'", i, line_without_newline);
+    if (line_without_newline[strlen(line_without_newline) - 1] == 'c') {
       /* if filename ends with .flac */
-      itemNames[i] = strndup(line, strlen(line) - 6 - 1);
+      itemNames[i] = strndup(line_without_newline, strlen(line_without_newline) - 6 - 1);
     } 
     else {
       /* else filename most probably ends with .fla */
-      itemNames[i] = strndup(line, strlen(line) - 5 - 1);
+      itemNames[i] = strndup(line_without_newline, strlen(line_without_newline) - 5 - 1);
     }
     
+    free(line_without_newline);
 
     if (itemList[i] == NULL) {
       die("Memory error");
@@ -117,13 +154,15 @@ int main(int argc, char* argv[]) {
     
     //printf("%s", line);
   }
+  
+  pclose(fp);
+  
   filesCount = i;
   files = itemList;
   filenames = itemNames;
 
   if (filesCount <= 0) {
-    printf("No results found\n");
-    exit(0);
+    die("No files found");
   }
   
   /* print the numbered results */
@@ -143,6 +182,18 @@ int main(int argc, char* argv[]) {
     free(thread_indexes[i]);
   }
   
+  for (i = 0; i < size; i++) {
+    if (itemList[i] != NULL) {
+      free(itemList[i]);
+    }
+    if (itemNames[i] != NULL) {
+      free(itemNames[i]);
+    }
+  }
+  
+  free(itemList);
+  free(itemNames);
+  
   LOG(DEBUG, "Program ended");
 
   return 0;
@@ -157,7 +208,6 @@ void *decodeNext(void * thread_num) {
 //  LOG(DEBUG, "decodeNext() called");
 
   int currentFile;
-  char command[512];
   
   /* this is supposed to be something like synchronized in java */
   pthread_mutex_lock(&mutex);
@@ -172,17 +222,19 @@ void *decodeNext(void * thread_num) {
     return NULL;
   }
   
-  sprintf(command, "flac -scd \"%s\" | lame --quiet -h -V%d - \"%s/%s.mp3\"", 
+  char* command;
+  command = print_to_string("flac -scd \"%s\" | lame --quiet -h -V%d - \"%s%s.mp3\"", 
       files[currentFile], vbr_quality, output_dir, filenames[currentFile]);
   
   
   LOG(INFO, "THREAD %d command: %s", thread, command);
   /* start conversion */
-  FILE *file;
-  file = popen(command, "r");
+//  FILE *file;
+//  file = popen(command, "r");
   
   /* wait for the command to complete */
-  pclose(file);
+//  pclose(file);
+  free(command);
   
   /* convert the file which is next in line if there is any */
 //  LOG(DEBUG, "decodeNext() ended");
