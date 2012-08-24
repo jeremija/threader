@@ -3,20 +3,32 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "js_logger.h"
 #include "string_allocation.h"
+
+#define RED_BOLD  "\033[1;31m"        /* 1 -> bold ;  31 -> red */
+#define RED       "\033[0;31m"        /* 0 -> normal ;  31 -> red */
+#define CYAN      "\033[0;36m"        /* 0 -> normal ;  36 -> cyan */
+#define GREEN     "\033[0;32m"        /* 4 -> underline ;  32 -> green */
+#define BLUE      "\033[9;34m"        /* 9 -> strike ;  34 -> blue */
+#define NO_COLOR  "\033[0m"           /* to flush the previous property */
 
 int verbose = 0;
 
 void enable_verbose() {
   verbose = 1;
-  LOG(DEBUG, "Debugging enabled!");
+  LOG(DEBUG, "Verbose enabled!");
 }
+
 
 void die(const char *message) {
   if (errno) {
-    perror(message);
+//    perror(message);
+    char *error_message = strerror(errno);
+    char* whole_message = print_to_string("%s: %s", message, error_message);
+    LOG(ERROR, whole_message);
   }
   else {
     LOG(ERROR, message);
