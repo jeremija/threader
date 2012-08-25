@@ -2,4 +2,4 @@ command=flac -scd "%INPUT_FILE%" | lame --quiet -h -V%QUALITY% - "%OUTPUT_FILE%"
 threads=2
 old_ext=.flac
 new_ext=.mp3
-run_script_on_finish=/home/jere/.flac2mp3/tag-mp3-from-flac.sh
+run_script_on_finish=/home/jere/.threader/tag-mp3-from-flac.sh

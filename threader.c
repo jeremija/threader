@@ -20,22 +20,24 @@ int size = 0;
 char* output_dir;           /* outp ut directory */
 char** input_files;         /* array of input files (whole path to file) */
 char** output_filenames;    /* array of output files (whole path to file) */
-char* vbr_quality = "4";    /* quality to use in conversion command */
+char* quality = "4";        /* default quality to use in conversion command */
 Config config;              /* configuration struct, the config file is read to this struct */
 
 int dry_run = 0;
-int threads_num_override_config = 0;
 int use_custom_config_file = 0;
 char* custom_config_file_location;
+/* config overrides */
+int override_config_threads_num = 0;
 
 /* initial size of files array */
 const int INITIAL_SIZE = 5;
+const char PATH_SEPARATOR = '/';
 
 /* string %INPUT_FILES% in config.command will be replaced with input_files[i] */
 const char* INPUT_FILE = "%INPUT_FILE%";      
 /* string %OUTPUT_FILES% in config.command will be replaced with output_filenames[i] */
 const char* OUTPUT_FILE = "%OUTPUT_FILE%";
-/* string %QUALITY%  in config.command will be replaced with vbr_quality */
+/* string %QUALITY%  in config.command will be replaced with quality */
 const char* QUALITY = "%QUALITY%";
 
 /*
@@ -45,15 +47,16 @@ void help() {
   printf(
       "usage: %s [OPTIONS] INPUT_DIR OUTPUT_DIR\n\n"
       "Options:\n"
-      "    -c [path] use custom config file run\n"
-      "    -d        dry run\n    -h        help\n"
+      "    -c [path] use custom config file\n"
+      "    -d        dry run (skips the command call from config file, but will call script if set\n"
+      "    -h        help\n"
       "    -n [num]  number of threads to use (default 2)\n"
       "    -i        if this option is used, the user can use the unlimited number of full paths\n"
       "              to the filenames to use (instead of the INPUT_DIR, but the last parameter\n"
-      "              must be the OUTPUT_DIR."
+      "              must be the OUTPUT_DIR.\n"
       "    -u        disables color output to console (should be first in line)\n"
       "    -v        verbose (should be first in line (after -u), or something may not be outputted)\n"
-      "    -V [num]  lame variable bitrate quality\n", APP_NAME);
+      "    -V [num]  quality (for example VBR quality for lame encoder)\n", APP_NAME);
   exit(0);
 }
 
@@ -80,13 +83,15 @@ void config_file_actions(const char* home_dir) {
       "script_path=%s",
       config.command, config.threads, config.old_ext, config.new_ext, config.run_script_on_finish, config.script_path);
   
+  /* CONFIG FILE OVERRIDES */
+  
   /*
    * override thread number set in config file if -n option was passed
    */
-  if (threads_num_override_config != 0) {
+  if (override_config_threads_num != 0) {
     LOG(INFO, "Overriding thread number from config file from %d to %d (-n option was passed)", 
-        config.threads, threads_num_override_config);
-    set_config_threads(&config, threads_num_override_config);
+        config.threads, override_config_threads_num);
+    set_config_threads(&config, override_config_threads_num);
   }
 }
 
@@ -120,6 +125,13 @@ void folder_input(int argc, char* argv[], int optind) {
   //getcwd(source_dir, PATH_MAX);
   LOG(DEBUG, "current dir: %s", source_dir);
   LOG(DEBUG, "output dir: %s", output_dir);
+  
+  if (source_dir[strlen(source_dir) - 1] != PATH_SEPARATOR) {
+    die("Input dir should end with path separator!"); 
+  }
+  if (output_dir[strlen(output_dir) - 1] != PATH_SEPARATOR) {
+    die("Output dir should end with path separator!"); 
+  }
   
 
   char* list_files_command;
@@ -196,6 +208,9 @@ void filenames_input(int argc, char* argv[], int optind) {
    * number of lone arguments
    */
   char* output_dir = argv[argc - 1];
+  if (output_dir[strlen(output_dir) - 1] != PATH_SEPARATOR) {
+    die("Output dir should end with path separator!"); 
+  }
   files_count = 0;
   int i;
   for(i = optind; i < argc - 1; i++) {
@@ -265,8 +280,8 @@ int main(int argc, char* argv[], char* envp[]) {
         i_option_enabled = 1;
         break;
       case 'n':
-        threads_num_override_config = atoi(optarg);
-        if (threads_num_override_config <= 0) {
+        override_config_threads_num = atoi(optarg);
+        if (override_config_threads_num <= 0) {
           die("Invalid number of threads (-n parameter)!");
         }
         break;
@@ -275,7 +290,7 @@ int main(int argc, char* argv[], char* envp[]) {
         LOG(INFO, "Disabling colored output");
         break;
       case 'V':
-        vbr_quality = optarg;
+        quality = optarg;
         break;
       case 'v':
         enable_verbose();
@@ -402,7 +417,7 @@ char* format_command(char *config_command, int currentFile) {
   command = strdup(replaced);
   free(replaced);
   
-  replaced = replace_all_in_string(command, QUALITY, vbr_quality);
+  replaced = replace_all_in_string(command, QUALITY, quality);
   free(command);
   command = strdup(replaced);
   free(replaced);

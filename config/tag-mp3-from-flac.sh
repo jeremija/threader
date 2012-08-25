@@ -8,11 +8,13 @@ if [ $# -ne 2 ]; then
   exit 0;
 fi
 
-ARTIST=$(metaflac "$1" --show-tag=ARTIST | sed s/.*=//g)
-TITLE=$(metaflac "$1" --show-tag=TITLE | sed s/.*=//g)
-ALBUM=$(metaflac "$1" --show-tag=ALBUM | sed s/.*=//g)
+# tr is for multi artist tags, and the last sed is to remove the - from the end of the folder name
+ARTIST=$(metaflac "$1" --show-tag=ARTIST | sed s/.*=//g | tr '\n' '-' | sed s/[-]$//)
+TITLE=$(metaflac "$1" --show-tag=TITLE | sed s/.*=//g | tr '\/' '--')
+ALBUM=$(metaflac "$1" --show-tag=ALBUM | sed s/.*=//g | tr '\/' '--')
 GENRE=$(metaflac "$1" --show-tag=GENRE | sed s/.*=//g)
-TRACKNUMBER=$(metaflac "$1" --show-tag=TRACKNUMBER | sed s/.*=//g)
+# second sed is for removing the /x (total tracks) from filename and tag
+TRACKNUMBER=$(metaflac "$1" --show-tag=TRACKNUMBER | sed s/.*=//g | sed s/[/].*//)
 DATE=$(metaflac "$1" --show-tag=DATE | sed s/.*=//g)
 
 id3 -t "$TITLE" -T "${TRACKNUMBER:-0}" -a "$ARTIST" -A "$ALBUM" -y "$DATE" -g "${GENRE:-12}" "$2"
