@@ -16,6 +16,7 @@ void *do_work();
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; /* for synchronized reading */
 int last_file = -1;         /* global variable, file conversion counter */
 int files_count = 0;        /* global variable, total files count */
+int size = 0;
 char* output_dir;           /* outp ut directory */
 char** input_files;         /* array of input files (whole path to file) */
 char** output_filenames;    /* array of output files (whole path to file) */
@@ -23,6 +24,7 @@ char* vbr_quality = "4";    /* quality to use in conversion command */
 Config config;              /* configuration struct, the config file is read to this struct */
 
 int dry_run = 0;
+int threads_num_override_config = 0;
 int use_custom_config_file = 0;
 char* custom_config_file_location;
 
@@ -46,84 +48,19 @@ void help() {
       "    -c [path] use custom config file run\n"
       "    -d        dry run\n    -h        help\n"
       "    -n [num]  number of threads to use (default 2)\n"
+      "    -i        if this option is used, the user can use the unlimited number of full paths\n"
+      "              to the filenames to use (instead of the INPUT_DIR, but the last parameter\n"
+      "              must be the OUTPUT_DIR."
       "    -u        disables color output to console (should be first in line)\n"
       "    -v        verbose (should be first in line (after -u), or something may not be outputted)\n"
       "    -V [num]  lame variable bitrate quality\n", APP_NAME);
   exit(0);
 }
 
-
 /*
- * The program begins here. 
- *  
- * Arguments: 
- *    argc - count of arguments
- *    argv - array of arguments
- *    envp - array of enviroment variables
+ * read fro mconfig file and set it up
  */
-int main(int argc, char* argv[], char* envp[]) {
-  /*
-   * initialize configuration (if config file isn't set)
-   */
-  config.run_script_on_finish = 0;
-  
-  /*
-   * path to home dir "/home/$USER", read from $HOME enviroment variable
-   */
-  const char* home_dir = getenv("HOME");
-  
-  /* variables used with getopt() */
-  extern char *optarg;
-  extern int optind, opterr;
-  
-  int argument;
-  int threads_num_override_config = 0;
-  /*
-   * read arguments in while loop and set the neccessary variables
-   */
-  while( (argument = getopt(argc, argv, "c:dhn:uV:v")) != -1  ) {
-    LOG(DEBUG, "argument='%c', optarg='%s'", argument, optarg);
-    switch(argument) {
-      case 'c':
-        LOG(INFO, "Will use custom config file");
-        use_custom_config_file = 1;
-        custom_config_file_location = optarg;
-        break;
-      case 'd':
-        LOG(WARN, "DRY RUN ENABLED!!!");
-        dry_run = 1;
-        break;
-      case 'h':
-        help();
-        break;
-      case 'n':
-        threads_num_override_config = atoi(optarg);
-        if (threads_num_override_config <= 0) {
-          die("Invalid number of threads (-n parameter)!");
-        }
-        break;
-      case 'u':
-        disable_color_output();
-        LOG(INFO, "Disabling colored output");
-        break;
-      case 'V':
-        vbr_quality = optarg;
-        break;
-      case 'v':
-        enable_verbose();
-        break;
-      default: /* '?' */
-        die("Wrong arguments or argument requires an option which was not supplied");
-    }
-  }
-  
-  /*
-   * must have two lone arguments (input and output folder directory)
-   */
-  if(optind > argc - 2) {
-    die("No input/output folders specified");
-  }
-  
+void config_file_actions(const char* home_dir) {
   /*
    * path of config file, default: /home/$USER/.threader/config
    */
@@ -151,7 +88,30 @@ int main(int argc, char* argv[], char* envp[]) {
         config.threads, threads_num_override_config);
     set_config_threads(&config, threads_num_override_config);
   }
-  
+}
+
+void reallocate_memory_for_next_filename() {
+  if (files_count >= size) {
+    size = files_count + 1;
+    input_files = realloc(input_files, sizeof(char*) * size);
+    output_filenames = realloc(output_filenames, sizeof(char*) * size);
+    if (input_files == NULL || output_filenames == NULL) {
+      die("Memory error!");
+    }
+  }
+}
+
+void folder_input(int argc, char* argv[], int optind) {
+  /*
+   * must have two lone arguments (input and output folder directory)
+   */
+  if(optind > argc - 2) {
+    die("No input/output folders specified");
+  }
+  else if(optind < argc - 2) {
+    die("Too many arguments specified. Maybe you wanted to use the -i option? ");
+  }
+
   /* first argument */
   char *source_dir = argv[optind++];
   /* second argument */
@@ -161,13 +121,7 @@ int main(int argc, char* argv[], char* envp[]) {
   LOG(DEBUG, "current dir: %s", source_dir);
   LOG(DEBUG, "output dir: %s", output_dir);
   
-  /*
-   * array which stores the threads which will run.
-   */  
-  pthread_t threads[config.threads];
-  
-  LOG(INFO, "Starting %d threads", config.threads);
-  
+
   char* list_files_command;
   /*
    * command to list files in source_dir
@@ -181,26 +135,7 @@ int main(int argc, char* argv[], char* envp[]) {
   }
 
   /* Read the output a line at a time */
-  int i;
   char line[PATH_MAX];
-
-  int size = INITIAL_SIZE;
-  /*
-   * allocate initial memory for array of input and output filenames (paths)
-   */ 
-  input_files = malloc(sizeof(char*) * size); 
-  output_filenames = malloc(sizeof(char*) * size);
-  if ( input_files == NULL || output_filenames == NULL) {
-        die("Memory error!");
-  }
-  
-  /*
-   * initialize input and output filenames to NULL. not sure if this is really neccessary
-   */ 
-  for (i = 0; i < size; i++) {
-    input_files[i] = NULL;
-    output_filenames[i] = NULL;
-  }
   
   files_count = 0;
   /*
@@ -211,14 +146,7 @@ int main(int argc, char* argv[], char* envp[]) {
     /*
      * reallocate memory for next filename if neccessary
      */ 
-    if (files_count >= size) {
-      size = files_count + 1;
-      input_files = realloc(input_files, sizeof(char*) * size);
-      output_filenames = realloc(output_filenames, sizeof(char*) * size);
-      if (input_files == NULL || output_filenames == NULL) {
-        die("Memory error!");
-      }
-    }
+    reallocate_memory_for_next_filename();
     
     
     char* path_to_file;
@@ -253,6 +181,146 @@ int main(int argc, char* argv[], char* envp[]) {
   if (files_count <= 0) {
     die("No files found");
   }
+}
+
+void filenames_input(int argc, char* argv[], int optind) {
+  /*
+   * must have two or more lone arguments. First n-1 is input filename, the last is the output folder
+   */
+  if(optind > argc - 2) {
+    die("No input/output folders specified");
+  }
+  
+  files_count = 0;
+  /*
+   * number of lone arguments
+   */
+  char* output_dir = argv[argc - 1];
+  files_count = 0;
+  int i;
+  for(i = optind; i < argc - 1; i++) {
+    /*
+     * reallocate memory for next filename if neccessary
+     */ 
+    reallocate_memory_for_next_filename();
+    
+    char* input_file = strdup(argv[i]);
+    input_files[files_count] = input_file;
+    
+    char* output_filename = extract_filename_from_path_no_ext(input_file, config.old_ext);
+    output_filenames[files_count] = 
+        print_to_string("%s%s%s", output_dir, output_filename, config.new_ext);
+    free(output_filename);
+    
+    files_count++;
+  }
+}
+
+
+/*
+ * The program begins here. 
+ *  
+ * Arguments: 
+ *    argc - count of arguments
+ *    argv - array of arguments
+ *    envp - array of enviroment variables
+ */
+int main(int argc, char* argv[], char* envp[]) {
+  /*
+   * initialize configuration (if config file isn't set)
+   */
+  config.run_script_on_finish = 0;
+  
+  /*
+   * path to home dir "/home/$USER", read from $HOME enviroment variable
+   */
+  const char* home_dir = getenv("HOME");
+  
+  /* variables used with getopt() */
+  extern char *optarg;
+  extern int optind, opterr;
+  
+  int argument;
+  int i_option_enabled = 0;
+  /*
+   * read arguments in while loop and set the neccessary variables
+   */
+  while( (argument = getopt(argc, argv, "c:dhin:uV:v")) != -1  ) {
+    LOG(DEBUG, "argument='%c', optarg='%s'", argument, optarg);
+    switch(argument) {
+      case 'c':
+        LOG(INFO, "Will use custom config file");
+        use_custom_config_file = 1;
+        custom_config_file_location = optarg;
+        break;
+      case 'd':
+        LOG(WARN, "DRY RUN ENABLED!!!");
+        dry_run = 1;
+        break;
+      case 'h':
+        help();
+        break;
+      case 'i':
+        LOG(INFO, "-i option enabled");
+        i_option_enabled = 1;
+        break;
+      case 'n':
+        threads_num_override_config = atoi(optarg);
+        if (threads_num_override_config <= 0) {
+          die("Invalid number of threads (-n parameter)!");
+        }
+        break;
+      case 'u':
+        disable_color_output();
+        LOG(INFO, "Disabling colored output");
+        break;
+      case 'V':
+        vbr_quality = optarg;
+        break;
+      case 'v':
+        enable_verbose();
+        break;
+      default: /* '?' */
+        die("Wrong arguments or argument requires an option which was not supplied");
+    }
+  }
+  
+  config_file_actions(home_dir);
+  
+  
+  size = INITIAL_SIZE;
+  /*
+   * allocate initial memory for array of input and output filenames (paths)
+   */ 
+  input_files = malloc(sizeof(char*) * size); 
+  output_filenames = malloc(sizeof(char*) * size);
+  if ( input_files == NULL || output_filenames == NULL) {
+        die("Memory error!");
+  }
+  
+  /*
+   * initialize input and output filenames to NULL. not sure if this is really neccessary
+   */ 
+  int i;
+  for (i = 0; i < size; i++) {
+    input_files[i] = NULL;
+    output_filenames[i] = NULL;
+  }
+  
+  if (i_option_enabled) {
+    filenames_input(argc, argv, optind);
+  } else {
+    folder_input(argc, argv, optind);
+  }
+  
+  
+
+  /*
+   * array which stores the threads which will run.
+   */  
+  pthread_t threads[config.threads];
+  
+  LOG(INFO, "Starting %d threads", config.threads);
   
   /*
    * this is only used for logging, so that each call to decode() knows which number it is.
@@ -285,11 +353,12 @@ int main(int argc, char* argv[], char* envp[]) {
    */
   if (config.run_script_on_finish) {
     LOG(INFO, "Starting script: %s", config.script_path);
-    for (i = 0; i < size; i++) {
+    for (i = 0; i < files_count; i++) {
       char* script_command = print_to_string("%s \"%s\" \"%s\"", config.script_path, 
           input_files[i], output_filenames[i]);
-      LOG(INFO, "Running post script: %s", script_command);
-      fp = popen(script_command, "r");
+      LOG(INFO, "Running post script on file: %s", output_filenames[i]);
+      LOG(DEBUG, "Running post script: %s", script_command);
+      FILE* fp = popen(script_command, "r");
       if (fp == NULL) die("Unable to open script");
       free(script_command);
       pclose(fp);
@@ -366,7 +435,7 @@ void *do_work(void * thread_num) {
   /* check if index is out of bounds */
   if (currentFile > files_count - 1) {
     /* if it is, do nothing */
-    LOG(DEBUG, "THREAD %d about to finish!", thread);
+    LOG(DEBUG, "THREAD %d: about to finish!", thread);
     return NULL;
   }
   
@@ -375,11 +444,11 @@ void *do_work(void * thread_num) {
    */ 
   char* command = format_command(config.command, currentFile);
   
-  char* filename = extract_filename_from_path_no_ext(input_files[currentFile], config.old_ext);
-  LOG(INFO, "THREAD %d input_filename='%s'", thread, filename);
-  free(filename);
+//  char* filename = extract_filename_from_path(input_files[currentFile]);
+  LOG(INFO, "THREAD %d: input_filename='%s'", thread, input_files[currentFile]);
+//  free(filename);
   
-  LOG(DEBUG, "THREAD %d command: %s", thread, command);
+  LOG(DEBUG, "THREAD %d: command: %s", thread, command);
   
   /***********************
    *  START CONVERSION!  *
@@ -394,7 +463,7 @@ void *do_work(void * thread_num) {
     pclose(file);
   }
   else {
-    LOG(WARN, "Dry run, skipping the command call!");
+    LOG(WARN, "THREAD %d: Dry run, skipping the command call!", thread);
   }
   free(command);
   
