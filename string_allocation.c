@@ -39,7 +39,7 @@ int find_position_of_string(const char *input, const char* search) {
 }
 
 int find_position_of_string_from_position(const char *input, const char* search, int start) {
-  if (input == NULL || search == NULL) return -1;
+  if (input == NULL || search == NULL || start < 0) return -1;
   int input_length = strlen(input);
   int search_length = strlen(search);
   
@@ -115,4 +115,43 @@ char* replace_all_in_string(const char *input, const char* search, const char* r
   char* replaced = strdup(to_replace);
   free(to_replace);
   return replaced;
+}
+
+char* extract_filename_from_path(const char *path) {
+  if (path == NULL) {
+    return NULL;
+  }
+  
+  int pos;
+  int last_pos = 0;
+  while( (pos = find_position_of_string_from_position(path, "/", last_pos + 1)) > -1 ) {
+    last_pos = pos;
+  }
+  
+  return strdup(path + last_pos + 1);
+}
+
+char* extract_filename_from_path_no_ext(const char* path, const char* ext) {
+  if (path == NULL) {
+    return NULL;
+  }
+  
+  char* filename_with_ext = extract_filename_from_path(path);
+  if (ext == NULL) {
+    return filename_with_ext;
+  }
+  
+  int filename_length = strlen(filename_with_ext);
+  int ext_length = strlen(ext);
+  
+  int filename_without_ext_len = filename_length - ext_length + 1;
+  
+  char* filename_without_ext = malloc(sizeof(char)*filename_without_ext_len);
+  if (filename_without_ext == NULL) die("Memory error!");
+  strncpy(filename_without_ext, filename_with_ext, filename_without_ext_len - 1);
+  filename_without_ext[filename_without_ext_len - 1] = '\0';
+  
+  free(filename_with_ext);
+  
+  return filename_without_ext;
 }

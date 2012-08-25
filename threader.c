@@ -14,9 +14,9 @@
 void *do_work();
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; /* for synchronized reading */
-int last_file = -1;          /* global variable, file conversion counter */
-int files_count = 0;         /* global variable, total files count */
-char* output_dir;           /* output directory */
+int last_file = -1;         /* global variable, file conversion counter */
+int files_count = 0;        /* global variable, total files count */
+char* output_dir;           /* outp ut directory */
 char** input_files;         /* array of input files (whole path to file) */
 char** output_filenames;    /* array of output files (whole path to file) */
 char* vbr_quality = "4";    /* quality to use in conversion command */
@@ -41,7 +41,14 @@ const char* QUALITY = "%QUALITY%";
  */
 void help() {
   printf(
-   "usage: %s [OPTION] INPUT_DIR OUTPUT_DIR\n\nOptions:\n    -c [path] use custom config file run\n    -d        dry run\n    -h        help\n    -n [num]  number of threads to use (default 2)\n    -v        verbose (should be first in line, or something may not be displayed)\n    -V [num]  lame variable bitrate quality\n", APP_NAME);
+      "usage: %s [OPTIONS] INPUT_DIR OUTPUT_DIR\n\n"
+      "Options:\n"
+      "    -c [path] use custom config file run\n"
+      "    -d        dry run\n    -h        help\n"
+      "    -n [num]  number of threads to use (default 2)\n"
+      "    -u        disables color output to console (should be first in line)\n"
+      "    -v        verbose (should be first in line (after -u), or something may not be outputted)\n"
+      "    -V [num]  lame variable bitrate quality\n", APP_NAME);
   exit(0);
 }
 
@@ -74,7 +81,7 @@ int main(int argc, char* argv[], char* envp[]) {
   /*
    * read arguments in while loop and set the neccessary variables
    */
-  while( (argument = getopt(argc, argv, "c:dhn:V:v")) != -1  ) {
+  while( (argument = getopt(argc, argv, "c:dhn:uV:v")) != -1  ) {
     LOG(DEBUG, "argument='%c', optarg='%s'", argument, optarg);
     switch(argument) {
       case 'c':
@@ -83,7 +90,7 @@ int main(int argc, char* argv[], char* envp[]) {
         custom_config_file_location = optarg;
         break;
       case 'd':
-        LOG(INFO, "DRY RUN ENABLED!!!");
+        LOG(WARN, "DRY RUN ENABLED!!!");
         dry_run = 1;
         break;
       case 'h':
@@ -94,6 +101,10 @@ int main(int argc, char* argv[], char* envp[]) {
         if (threads_num_override_config <= 0) {
           die("Invalid number of threads (-n parameter)!");
         }
+        break;
+      case 'u':
+        disable_color_output();
+        LOG(INFO, "Disabling colored output");
         break;
       case 'V':
         vbr_quality = optarg;
@@ -107,7 +118,7 @@ int main(int argc, char* argv[], char* envp[]) {
   }
   
   /*
-   * must have two arguments (input and output folder directory)
+   * must have two lone arguments (input and output folder directory)
    */
   if(optind > argc - 2) {
     die("No input/output folders specified");
@@ -128,7 +139,8 @@ int main(int argc, char* argv[], char* envp[]) {
    */
   config = read_conf_file(config_location);
   free(config_location);
-  LOG(INFO, "command='%s', threads=%d, old_ext='%s', new_ext='%s', run_script_on_finish=%d, script_path=%s",
+  LOG(INFO, "command='%s', threads=%d, old_ext='%s', new_ext='%s', run_script_on_finish=%d, "
+      "script_path=%s",
       config.command, config.threads, config.old_ext, config.new_ext, config.run_script_on_finish, config.script_path);
   
   /*
@@ -221,7 +233,8 @@ int main(int argc, char* argv[], char* envp[]) {
     /*
      * original filename without extension
      */
-    char* itemName = strndup(line_without_newline, strlen(line_without_newline) -  strlen(config.old_ext));
+    char* itemName = 
+        strndup(line_without_newline, strlen(line_without_newline) -  strlen(config.old_ext));
     
     /*
      * concatenate output filename, original filename without extension and append the new extension 
@@ -329,7 +342,7 @@ char* format_command(char *config_command, int currentFile) {
 }
 
 /**
- * This method will be called from new thread.
+ * This method will be called by each thread.
  * It will call itself recursively later on.
  */
 void *do_work(void * thread_num) {
@@ -362,7 +375,11 @@ void *do_work(void * thread_num) {
    */ 
   char* command = format_command(config.command, currentFile);
   
-  LOG(INFO, "THREAD %d command: %s", thread, command);
+  char* filename = extract_filename_from_path_no_ext(input_files[currentFile], config.old_ext);
+  LOG(INFO, "THREAD %d input_filename='%s'", thread, filename);
+  free(filename);
+  
+  LOG(DEBUG, "THREAD %d command: %s", thread, command);
   
   /***********************
    *  START CONVERSION!  *
@@ -377,7 +394,7 @@ void *do_work(void * thread_num) {
     pclose(file);
   }
   else {
-    LOG(DEBUG, "Dry run, skipping the command call!");
+    LOG(WARN, "Dry run, skipping the command call!");
   }
   free(command);
   

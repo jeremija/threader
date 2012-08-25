@@ -25,4 +25,8 @@ int find_position_of_string_from_position(const char *input, const char* search,
 char* replace_all_in_string(const char *input, const char* search, const char* replace);
 
 
+char* extract_filename_from_path(const char *path);
+
+char* extract_filename_from_path_no_ext(const char* path, const char* ext);
+
 #endif

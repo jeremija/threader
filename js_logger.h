@@ -2,10 +2,12 @@
 #define _JS_LOGGER
 
 #define ERROR                 1
-#define INFO                  2
-#define DEBUG                 3         
+#define WARN                  2
+#define INFO                  3
+#define DEBUG                 4         
 
 #define ERROR_STR     "ERROR"
+#define WARN_STR      "WARN "
 #define INFO_STR      "INFO "
 #define DEBUG_STR     "DEBUG"     
 #define UNKNOWN_STR   "(***)"  
@@ -16,6 +18,11 @@
  * If called, will output the DEBUG log entries to console.
  */
 void enable_verbose();
+
+/*
+ * If called, output to console will be colorless
+ */
+void disable_color_output();
 
 /*
  * Logs to console in various colors.
