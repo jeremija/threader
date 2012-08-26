@@ -48,14 +48,16 @@ void help() {
       "usage: %s [OPTIONS] INPUT_DIR OUTPUT_DIR\n\n"
       "Options:\n"
       "    -c [path] use custom config file\n"
-      "    -d        dry run (skips the command call from config file, but will call script if set\n"
+      "    -d        dry run (skips the command call from config file, but will call\n"
+      "               script if set\n"
       "    -h        help\n"
       "    -n [num]  number of threads to use (default 2)\n"
-      "    -i        if this option is used, the user can use the unlimited number of full paths\n"
-      "              to the filenames to use (instead of the INPUT_DIR, but the last parameter\n"
-      "              must be the OUTPUT_DIR.\n"
+      "    -i        if this option is used, the user can use the unlimited number of\n"
+      "              full paths to the filenames to use (instead of the INPUT_DIR, but\n"
+      "              the last parameter must be the OUTPUT_DIR.\n"
       "    -u        disables color output to console (should be first in line)\n"
-      "    -v        verbose (should be first in line (after -u), or something may not be outputted)\n"
+      "    -v        verbose (should be first in line (after -u), or something may not\n"
+      "              be outputted)\n"
       "    -V [num]  quality (for example VBR quality for lame encoder)\n", APP_NAME);
   exit(0);
 }
