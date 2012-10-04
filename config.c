@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 #include "config.h"
-#include "lib/logger/logger.h"
+#include "logger/logger.h"
 
 const char* KEY_COMMAND = "command";
 const char* KEY_THREADS = "threads";
