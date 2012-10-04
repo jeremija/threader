@@ -7,8 +7,8 @@
 #include <errno.h>
 
 #include "threader.h"
-#include "lib/logger/logger.h"
-#include "lib/logger/string_allocation.h"
+#include "logger/logger.h"
+#include "logger/string_allocation.h"
 #include "config.h"
 
 void *do_work();
